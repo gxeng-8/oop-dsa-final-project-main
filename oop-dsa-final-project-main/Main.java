@@ -1,0 +1,179 @@
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import javax.swing.*;
+
+public class Main extends JFrame {
+    public Player player;
+    private List<Enemy> enemies;
+    MainMenuPanel mainMenu;
+    private MapPanel gamePanel;  // Changed from JPanel to MapPanel
+    BattlePanel battlePanel;
+    ShopPanel shopPanel;
+    NPCConversation npcPanel;
+
+    private List<NPC> npcList;  // MUST be initialized
+    private boolean renzDefeated = false; // Track if Renz was defeated
+
+    public Main() {
+
+        player = new Player("Hero", 100, 10, 5, 3, 100000, this);
+
+        setTitle("A Java RPG");
+        setSize(1820, 1080);
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setLocationRelativeTo(null);
+        setResizable(true);
+
+        //enemy list
+        //linked list nisya nga saket lng ulo kag ara iya
+        enemies = new ArrayList<>();
+        enemies.add(new Enemy("Goblin", 60, 5, 10, 0, 0));
+        enemies.add(new Enemy("Orc", 80, 8, 15, 0, 0));
+        enemies.add(new Enemy("Slime", 20, 2, 6, 0, 0));
+
+
+        // Boss 1
+        enemies.add(new Enemy("Renz, the Corrupted King", 500, 30, 20, 0, 0));
+        // Boss 2
+        enemies.add(new Enemy("Gleih, the Dancing Witch", 250, 50, 10, 0, 0));
+        // Boss 3
+        //Eum, The VoidMother, health 800, attack 70, defense 30
+        
+        List<NPC> npcList = new ArrayList<>();
+
+        NPC elder = new NPC("Village Elder", "start");
+
+        // Add dialogue nodes
+        elder.addNode(new DialogueNode(
+        "start",
+    "Greetings, traveler.",
+        Arrays.asList("Who are you?", "Any work?", "Goodbye."),
+        Arrays.asList("intro", "quest", null),
+        Arrays.asList("I am the elder.", "Yes, I have a task for you.", "Farewell.")
+        ));
+
+    elder.addNode(new DialogueNode(
+        "intro",
+        "I am the elder of this village.",
+        Arrays.asList("Tell me more.", "Thanks.", "Goodbye."),
+        Arrays.asList("quest", "start", null),
+        Arrays.asList("There are monsters in the woods.", "Safe travels.", "Farewell.")
+    ));
+
+    elder.addNode(new DialogueNode(
+        "quest",
+        "There are monsters in the woods.",
+        Arrays.asList("I'll handle it.", "That's dangerous.", "Goodbye."),
+        Arrays.asList(null, "start", null),
+        Arrays.asList("Thank you, brave one.", "Be careful!", "Farewell." )
+        //figure a way to exit the conversation gracefully
+    ));
+
+        npcList.add(elder);
+        npcPanel = new NPCConversation(this, player, npcList);
+        // -----------------------------------------------------
+        showMainMenu();
+        setVisible(true);
+    }
+
+    public Enemy getEnemy(int index) {
+        if(index >= 0 && index < enemies.size()) return enemies.get(index);
+        return null;
+    }
+
+    public Enemy createEnemy(int index) {
+        if(index < 0 || index >= enemies.size()) return null;
+
+        Enemy t = enemies.get(index);
+        return new Enemy(t.name, t.health, t.attackPower, t.defense, 0, 0);
+    }
+
+    public List<Enemy> getEnemies() { return enemies; }
+
+    public void showMainMenu() {
+        mainMenu = new MainMenuPanel(this);
+        setContentPane(mainMenu);
+        revalidate();
+    }
+
+    public void showGamePanel() {
+        gamePanel = new MapPanel(this);
+        setContentPane(gamePanel);
+        revalidate();
+    }
+
+    public void startBattle(Enemy enemy) {        
+        battlePanel = new BattlePanel(this, player, enemy);
+        setContentPane(battlePanel);
+        revalidate();
+    }
+
+    public void startConversation() {
+        setContentPane(npcPanel);
+        revalidate();
+    }
+
+    public void addPotion() {
+        player.potionAmount++;
+    }
+
+    public void addCoins(int reward) {
+        player.coins += reward;
+    }
+
+    // Method called when Corrupted King Renz is defeated
+    public void onRenzDefeated() {
+        System.out.println("DEBUG: onRenzDefeated() called!"); // DEBUG
+        renzDefeated = true; // Mark that Renz was defeated
+    }
+
+    // Return to map and spawn Spire if Renz was defeated
+    public void returnToMap() {
+        System.out.println("DEBUG: returnToMap() called"); // DEBUG
+        System.out.println("DEBUG: renzDefeated = " + renzDefeated); // DEBUG
+        System.out.println("DEBUG: gamePanel = " + gamePanel); // DEBUG
+        
+        setContentPane(gamePanel);
+        revalidate();
+        repaint();
+        
+        // Spawn spire after returning to map if Renz was defeated
+        if (renzDefeated && gamePanel != null) {
+            System.out.println("DEBUG: Spawning spire now!"); // DEBUG
+            SwingUtilities.invokeLater(() -> {
+                gamePanel.spawnSpire();
+                renzDefeated = false; // Reset flag
+            });
+        }
+        
+        // CRITICAL: Request focus multiple times to ensure it works
+        SwingUtilities.invokeLater(() -> {
+            gamePanel.setFocusable(true);
+            gamePanel.requestFocusInWindow();
+        });
+        
+        // Double-check focus after a short delay
+        Timer focusTimer = new Timer(100, e -> {
+            gamePanel.requestFocusInWindow();
+        });
+        focusTimer.setRepeats(false);
+        focusTimer.start();
+    }
+
+    public void startBossBattle() {
+        Enemy template = enemies.get(3);
+        BossEnemy renz = new BossEnemy(template.name, template.health, template.attackPower, template.defense, 0, 0);
+        startBattle(renz);
+    }
+
+    public void startBossBattle2() {
+        Enemy template = enemies.get(4);
+        BossEnemyWitch gleih = new BossEnemyWitch(template.name, template.health, template.attackPower, template.defense, 0, 0);
+        startBattle(gleih);
+    }
+
+    public static void main(String[] args) {
+        new Main();
+    }
+}

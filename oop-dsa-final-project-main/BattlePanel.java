@@ -1,0 +1,436 @@
+import java.awt.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+import javax.swing.*;
+import javax.swing.text.*;
+
+
+public class BattlePanel extends JPanel {
+    private Main game;
+    private Player player;
+
+    
+    private List<Enemy> enemies;
+    private JComboBox<String> targetBox;
+
+    private JTextArea log;
+
+    private JTextPane styledPane;
+    private StyledDocument doc;
+
+    private JLabel stats;
+    Random rand = new Random();
+
+    private int lastPlayerAction = 0;
+
+    public BattlePanel(Main game, Player player, Enemy enemy) {
+        this(game, player, List.of(enemy));
+    }
+
+    public BattlePanel(Main game, Player player, List<Enemy> enemies) {
+        this.game = game;
+        this.player = player;
+        this.enemies = new ArrayList<>(enemies);
+
+        setLayout(new BorderLayout());
+        setBackground(new Color(25,25,25));
+
+        stats = new JLabel(updateStatsForEnemies(), SwingConstants.CENTER);
+        stats.setForeground(new Color(230,205,70));
+        stats.setFont(GameFonts.press(20f));
+        stats.setBorder(BorderFactory.createEmptyBorder(10,0,10,0));
+        add(stats, BorderLayout.NORTH);
+
+        styledPane = new JTextPane();
+        styledPane.setEditable(false);
+        styledPane.setBackground(new Color(40,40,40));
+        styledPane.setForeground(Color.WHITE);
+        styledPane.setFont(GameFonts.press(25f));
+        styledPane.setBorder(BorderFactory.createLineBorder(new Color(200,200,100), 2));
+        doc = styledPane.getStyledDocument();
+
+        createStyles(doc);
+
+        JScrollPane scroll = new JScrollPane(styledPane);
+        add(scroll, BorderLayout.CENTER);
+
+        log = new ForwardingTextArea();
+
+        JPanel rightPanel = new JPanel(new BorderLayout());
+        rightPanel.setBackground(new Color(25,25,25));
+        rightPanel.setBorder(BorderFactory.createEmptyBorder(8,8,8,8));
+        targetBox = new JComboBox<>();
+        targetBox.setFont(GameFonts.press(20f));
+        targetBox.setBackground(new Color(60,60,60));
+        targetBox.setForeground(new Color(240,220,140));
+        updateTargetBox();
+        rightPanel.add(new JLabel("Target:"), BorderLayout.NORTH);
+        rightPanel.add(targetBox, BorderLayout.CENTER);
+        add(rightPanel, BorderLayout.EAST);
+
+        JPanel buttons = new JPanel();
+        buttons.setBackground(new Color(25,25,25));
+        buttons.setLayout(new FlowLayout(FlowLayout.CENTER, 15, 10));
+        JButton attackBtn = styledBtn("Attack");
+        JButton defendBtn = styledBtn("Defend");
+        JButton healBtn   = styledBtn("Heal");
+        JButton fleeBtn = styledBtn("Flee");
+
+        buttons.add(attackBtn);
+        buttons.add(defendBtn);
+        buttons.add(healBtn);
+        buttons.add(fleeBtn);
+        add(buttons, BorderLayout.SOUTH);
+
+
+        attackBtn.addActionListener(e -> doTurn(1));
+        defendBtn.addActionListener(e -> doTurn(2));
+        healBtn.addActionListener(e -> doTurn(3));
+        fleeBtn.addActionListener(e -> doTurn(4));
+
+       
+        
+        String[] appearanceTexts = {
+            "%s appears!\n",
+            "%s has appeared!\n",
+            "You encounter %s!\n",
+            "Suddenly, %s jumps in front of you!\n",
+            "%s blocks your path!\n",
+            "From the shadows, %s emerges!\n",
+            "You hear a rustle… it's %s!\n",
+            "Prepare yourself! %s appears!\n",
+            "%s is approaching!\n",
+            "Enemy spotted! It's %s!\n"};
+        
+        if (!this.enemies.isEmpty()) {
+            int index = rand.nextInt(appearanceTexts.length);
+            log.setText(String.format(appearanceTexts[index], this.enemies.get(0).getName()));
+        } else {
+            log.setText("No enemies? Strange...\n");
+        }
+    
+
+        if (!this.enemies.isEmpty() && this.enemies.get(0) instanceof BossEnemy) {
+            log.append("\n\"" + "This world will be mine." + "\"\n");
+            log.append("\nRenz eyes you coldly — read his moves in the log.\n");
+        }
+        if (!this.enemies.isEmpty() && this.enemies.get(0) instanceof BossEnemyWitch) {
+            log.append("\n\"" + "Care to dance a little?" + "\"\n");
+            log.append("\nGleih eyes you coldly — read his moves in the log.\n");
+        }
+
+    }
+
+    private JButton styledBtn(String txt){
+        JButton btn = new JButton(txt);
+        btn.setBackground(new Color(60,60,60));
+        btn.setForeground(new Color(240,220,140));
+        btn.setFont(GameFonts.press(20f));
+        btn.setMargin(new Insets(10, 28, 10, 28));
+        btn.setFocusPainted(false);
+        return btn;
+    }
+
+    
+    private void doTurn(int action){
+        if(!player.isAlive() || enemies.isEmpty()) return;
+
+       
+        lastPlayerAction = action;
+        switch(action){
+            case 1 -> { 
+                int idx = targetBox.getSelectedIndex();
+                if (idx >= 0 && idx < enemies.size()) {
+                    Enemy chosen = enemies.get(idx);
+                    player.attack(chosen, log);
+
+                  
+                    if (chosen instanceof BossEnemyWitch bw && bw.isPunishActive()) bw.clearPunish();
+                    else if (chosen instanceof BossEnemy boss && boss.isPunishActive()) boss.clearPunish();
+                } else {
+                   
+                    Enemy chosen = enemies.get(0);
+                    player.attack(chosen, log);
+                }
+            }
+            case 2 -> player.defend(log);
+            
+            case 3 -> player.heal(log);
+            case 4 -> player.flee(log);
+        }
+
+        stats.setText(updateStatsForEnemies());
+
+        // Enemy turn - only alive enemies attack
+        for (int i = 0; i < enemies.size(); i++) {
+            if (!player.isAlive()) break;
+
+            Enemy e = enemies.get(i);
+            
+            // CRITICAL FIX: Skip dead enemies
+            if (!e.isAlive()) continue;
+            
+            if (e instanceof BossEnemyWitch witch) {
+                witch.bossTurn(player, log, lastPlayerAction);
+
+                MinionEnemy minion = witch.getPendingSummon();
+                if (minion != null) {
+                    enemies.add(minion);
+                    appendWithDelay("\n\nA foul spawn has been summoned and joins the battle!", 500);
+                    updateTargetBox();
+                }
+            } else if (e instanceof BossEnemy boss) {
+                try {
+                    boss.bossTurn(player, log, lastPlayerAction);
+                } catch (Exception ex) {
+                    e.attack(player, log);
+                }
+            } else {
+                e.attack(player, log);
+            }
+            stats.setText(updateStatsForEnemies());
+        }
+
+        // Remove dead enemies from the list
+        List<Enemy> dead = new ArrayList<>();
+        for (Enemy e : enemies) if (!e.isAlive()) dead.add(e);
+        for (Enemy d : dead) {
+            enemies.remove(d);
+        }
+
+        if (enemies.isEmpty()) {
+            int reward = rand.nextInt(10) + 2000;
+        
+            boolean wasBoss = false;
+            boolean gleihDefeated = false;
+            boolean renzDefeated = false; // NEW: Track if Renz was defeated
+        
+            for (Enemy e : dead) {
+                System.out.println("DEBUG BattlePanel: Checking dead enemy: " + e.getName()); // DEBUG
+                if (e instanceof BossEnemyWitch) {
+                    gleihDefeated = true;
+                    break; 
+                } else if (e instanceof BossEnemy) {
+                    wasBoss = true;
+                    // NEW: Check if it's specifically Renz
+                    if (e.getName().contains("Renz") || e.getName().contains("Corrupted King")) {
+                        System.out.println("DEBUG BattlePanel: RENZ DETECTED!"); // DEBUG
+                        renzDefeated = true;
+                    }
+                }
+            }
+        
+            if (gleihDefeated) {
+                log.append("\n\n>> DING DONG, The Dancing Witch is Dead!");
+                log.append("\n\n>> VICTORY!");
+                log.append("\nYou found something... a legendary armor?");
+            } else if (wasBoss) {
+                log.append("\n\n>> The Corrupted King collapses... The final blow!");
+                log.append("\n\n>> VICTORY!");
+                log.append("\nYou found something... a legendary weapon?");
+                
+                // NEW: Spawn the Spire when Renz is defeated
+                if (renzDefeated) {
+                    System.out.println("DEBUG BattlePanel: Calling game.onRenzDefeated()"); // DEBUG
+                    game.onRenzDefeated();
+                } else {
+                    System.out.println("DEBUG BattlePanel: renzDefeated is FALSE"); // DEBUG
+                }
+            } else {
+                log.append("\n\n>> VICTORY!");
+            }
+        
+            log.append("\n You have obtained " + reward + " coins! ");
+            game.addCoins(reward);
+        
+            Timer t2 = new Timer(5000, ev -> game.returnToMap());
+            t2.setRepeats(false);
+            t2.start();
+            return;
+        }
+
+        updateTargetBox();
+        stats.setText(updateStatsForEnemies());
+
+        if(!player.isAlive()) {
+            log.append("\n\n>> GAME OVER");
+        }
+    }
+
+    private String updateStatsForEnemies(){
+        StringBuilder sb = new StringBuilder();
+        sb.append("Hero HP: ").append(player.getHealth()).append(" Potions Left:").append(player.potionAmount);
+        sb.append(" | Enemies: ");
+        for (int i = 0; i < enemies.size(); i++) {
+            Enemy e = enemies.get(i);
+            sb.append(e.getName()).append("(").append(e.getHealth()).append(")");
+            if (i < enemies.size()-1) sb.append(" ");
+        }
+        return sb.toString();
+    }
+
+    
+    private void createStyles(StyledDocument d) {
+        Style def = d.addStyle("default", null);
+        StyleConstants.setFontFamily(def, GameFonts.jetts(30f).getFamily());
+        StyleConstants.setFontSize(def, 24);
+        StyleConstants.setForeground(def, Color.WHITE);
+
+        Style playerStyle = d.addStyle("player", def);
+        StyleConstants.setForeground(playerStyle, Color.YELLOW);
+
+        Style enemyStyle = d.addStyle("enemy", def);
+        StyleConstants.setForeground(enemyStyle, new Color(255, 140, 0)); // orange
+
+        Style bossStyle = d.addStyle("boss", def);
+        StyleConstants.setForeground(bossStyle, Color.RED);
+        StyleConstants.setBold(bossStyle, true);
+
+        Style bossHeavy = d.addStyle("bossHeavy", bossStyle);
+        StyleConstants.setForeground(bossHeavy, new Color(165, 20, 20));
+
+        Style phase = d.addStyle("phase", def);
+        StyleConstants.setForeground(phase, new Color(160, 32, 240));
+        StyleConstants.setBold(phase, true);
+
+        Style system = d.addStyle("system", def);
+        StyleConstants.setForeground(system, new Color(100, 225, 100));
+        StyleConstants.setBold(system, true);
+    }
+
+    private void appendStyledByHeuristics(String raw) {
+        if (raw == null || raw.isEmpty()) return;
+
+        String[] parts = raw.split("(?<=\\n)");
+        for (String part : parts) {
+            String trimmed = part.stripLeading();
+            try {
+                
+                if (trimmed.startsWith("You")) {
+                    doc.insertString(doc.getLength(), part, doc.getStyle("player"));
+                    continue;
+                }
+
+                
+                if (trimmed.contains("VICTORY") || trimmed.contains("You have obtained") || trimmed.startsWith(">>")) {
+                    doc.insertString(doc.getLength(), part, doc.getStyle("system"));
+                    continue;
+                }
+
+                
+                Enemy matched = null;
+                boolean matchedIsBoss = false;
+                for (Enemy e : enemies) {
+                    String n = e.getName();
+                    if (n != null && !n.isEmpty() && trimmed.contains(n)) {
+                        matched = e;
+                        if (e instanceof BossEnemy) matchedIsBoss = true;
+                        break;
+                    }
+                }
+
+                if (matched != null) {
+                    String up = trimmed.toUpperCase();
+                    if (matchedIsBoss) {
+                        
+                        if (up.contains("PUNISH") || up.contains("HEAVY") || up.contains("DELIVERS") || up.contains("PUNISHES")) {
+                            doc.insertString(doc.getLength(), part, doc.getStyle("bossHeavy"));
+                        } else if (up.contains("ENTERS") || up.contains("PHASE")) {
+                            doc.insertString(doc.getLength(), part, doc.getStyle("phase"));
+                        } else {
+                            
+                            int idx = part.indexOf(matched.getName());
+                            if (idx >= 0) {
+                                String before = part.substring(0, idx);
+                                String name = part.substring(idx, idx + matched.getName().length());
+                                String after = part.substring(idx + matched.getName().length());
+                                if (!before.isEmpty()) doc.insertString(doc.getLength(), before, doc.getStyle("boss"));
+                                doc.insertString(doc.getLength(), name, doc.getStyle("boss"));
+                                if (!after.isEmpty()) doc.insertString(doc.getLength(), after, doc.getStyle("boss"));
+                            } else {
+                                doc.insertString(doc.getLength(), part, doc.getStyle("boss"));
+                            }
+                        }
+                    } else {
+                        
+                        doc.insertString(doc.getLength(), part, doc.getStyle("enemy"));
+                    }
+                    continue;
+                }
+
+                boolean startsWithEnemy = false;
+                for (Enemy e : enemies) {
+                    if (trimmed.startsWith(e.getName())) {
+                        startsWithEnemy = true;
+                        break;
+                    }
+                }
+                if (startsWithEnemy) {
+                    doc.insertString(doc.getLength(), part, doc.getStyle("enemy"));
+                    continue;
+                }
+
+                doc.insertString(doc.getLength(), part, doc.getStyle("default"));
+
+            } catch (BadLocationException ex) {
+                styledPane.setText(styledPane.getText() + part);
+            }
+        }
+
+        SwingUtilities.invokeLater(() -> styledPane.setCaretPosition(doc.getLength()));
+    }
+
+    private class ForwardingTextArea extends JTextArea {
+        public ForwardingTextArea() {
+            super();
+        }
+
+        @Override
+        public void append(String str) {
+            appendStyledSafely(str);
+        }
+
+        @Override
+        public void setText(String text) {
+            try {
+                doc.remove(0, doc.getLength());
+            } catch (BadLocationException ex) {
+                // ignore
+            }
+            appendStyledSafely(text);
+        }
+
+        private void appendStyledSafely(String s) {
+            if (s == null) return;
+            appendStyledByHeuristics(s);
+        }
+    }
+
+    private void updateTargetBox() {
+        SwingUtilities.invokeLater(() -> {
+            int selectedIndex = targetBox.getSelectedIndex(); 
+            targetBox.removeAllItems();
+            for (Enemy e : enemies) {
+                if(e.getHealth()<=0){
+                    targetBox.addItem(e.getName() + " (HP: DEAD! ) ");                    
+                 } else{    
+                    targetBox.addItem(e.getName() + " (HP: " + e.getHealth() + ")");
+                 }
+            }
+            if (targetBox.getItemCount() > 0) {
+                if (selectedIndex >= 0 && selectedIndex < targetBox.getItemCount()) {
+                    targetBox.setSelectedIndex(selectedIndex);
+                } else {
+                    targetBox.setSelectedIndex(0);
+                }
+            }
+        });
+    }
+
+    public void appendWithDelay(String text, int delayMs) {
+        Timer t = new Timer(delayMs, e -> log.append(text));
+        t.setRepeats(false);
+        t.start();
+    }
+}
